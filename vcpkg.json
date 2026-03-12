@@ -1,0 +1,11 @@
+{
+  "name": "my-formal-project",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "opencv4",
+    "pcl",
+    "osg",
+    "gdal",
+    "onnxruntime"
+  ]
+}
