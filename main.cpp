@@ -29,6 +29,7 @@
 #include <osgGA/TrackballManipulator>
 #include <osgViewer/GraphicsWindow>
 
+#include "inputoutput.h" 
 // ==========================================================
 // 1. OSG 渲染视口窗口适配器 (结合 QOpenGLWidget 与 OSG)
 // ==========================================================
@@ -120,6 +121,7 @@ public:
         setupDockWidgets();
         setupCentralWidget();
         setupStatusBar();
+        connectSignals(); 
     }
 
 private:
@@ -212,6 +214,35 @@ private:
 
     void setupStatusBar() {
         statusBar()->showMessage(QString::fromUtf8("系统就绪 - 等待加载街景数据..."));
+    }
+        void connectSignals() {
+        // 使用 Lambda 表达式连接信号与槽
+        
+        // 1. 导入点云
+        connect(actImportPCL, &QAction::triggered, this, [this]() {
+            QString path = IOHelper::importPointCloud(this);
+            if(!path.isEmpty()) {
+                statusBar()->showMessage(QString::fromUtf8("当前加载点云: ") + path);
+            }
+        });
+
+        // 2. 导入图像
+        connect(actImportImg, &QAction::triggered, this, [this]() {
+            QString path = IOHelper::importImage(this);
+            if(!path.isEmpty()) {
+                statusBar()->showMessage(QString::fromUtf8("当前加载图像: ") + path);
+            }
+        });
+
+        // 3. 导出GIS数据
+        connect(actExportGIS, &QAction::triggered, this, [this]() {
+            QString path = IOHelper::exportGISData(this);
+            if(!path.isEmpty()) {
+                statusBar()->showMessage(QString::fromUtf8("数据已导出至: ") + path);
+            }
+        });
+        
+        // (注：大模型加载和矢量化相关的 Action 可以等后续实现具体算法后再连接)
     }
 
     // 动作声明

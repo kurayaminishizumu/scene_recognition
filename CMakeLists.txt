@@ -26,7 +26,7 @@ find_package(onnxruntime REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 # ===================================
 
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} main.cpp inputoutput.cpp)
 
 add_definitions(${PCL_DEFINITIONS})
 target_include_directories(${PROJECT_NAME} PRIVATE ${PCL_INCLUDE_DIRS})
