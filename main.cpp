@@ -30,77 +30,11 @@
 #include <osgViewer/GraphicsWindow>
 
 #include "inputoutput.h" 
+#include "osgwidget.h" 
 // ==========================================================
 // 1. OSG 渲染视口窗口适配器 (结合 QOpenGLWidget 与 OSG)
 // ==========================================================
-class OSGWidget : public QOpenGLWidget
-{
-    Q_OBJECT
-public:
-    OSGWidget(QWidget* parent = nullptr) : QOpenGLWidget(parent)
-    {
-        // 允许键盘和鼠标事件
-        setFocusPolicy(Qt::StrongFocus);
-        setMouseTracking(true);
 
-        // 初始化 OSG Viewer
-        m_viewer = new osgViewer::Viewer;
-        m_viewer->setThreadingModel(osgViewer::Viewer::SingleThreaded);
-
-        // 创建图形上下文 (Graphics Window Embedded)
-        m_window = m_viewer->setUpViewerAsEmbeddedInWindow(0, 0, width(), height());
-        
-        // 设置相机操控器 (轨迹球)
-        m_viewer->setCameraManipulator(new osgGA::TrackballManipulator);
-
-        // 创建一个测试用的地球/球体作为初始占位符
-        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
-        osg::ref_ptr<osg::ShapeDrawable> sphere = new osg::ShapeDrawable(new osg::Sphere(osg::Vec3(0,0,0), 1.0f));
-        sphere->setColor(osg::Vec4(0.2f, 0.6f, 0.8f, 1.0f)); // 街景主题色
-        geode->addDrawable(sphere.get());
-        m_viewer->setSceneData(geode.get());
-
-        // 使用定时器刷新 OSG 渲染
-        QTimer* timer = new QTimer(this);
-        connect(timer, &QTimer::timeout, this, [this]() {
-            this->update();
-        });
-        timer->start(16); // 约 60 FPS
-    }
-
-protected:
-    virtual void paintGL() override {
-        if (m_viewer) {
-            m_viewer->frame();
-        }
-    }
-
-    virtual void resizeGL(int width, int height) override {
-        if (m_window.valid()) {
-            m_window->resized(x(), y(), width, height);
-            m_viewer->getCamera()->setViewport(0, 0, width, height);
-            m_viewer->getCamera()->setProjectionMatrixAsPerspective(30.0f, static_cast<double>(width) / static_cast<double>(height), 1.0, 1000.0);
-        }
-    }
-
-    // 鼠标事件转发给 OSG
-    virtual void mousePressEvent(QMouseEvent* event) override {
-        if (m_window.valid()) m_window->getEventQueue()->mouseButtonPress(event->x(), event->y(), event->button());
-    }
-    virtual void mouseReleaseEvent(QMouseEvent* event) override {
-        if (m_window.valid()) m_window->getEventQueue()->mouseButtonRelease(event->x(), event->y(), event->button());
-    }
-    virtual void mouseMoveEvent(QMouseEvent* event) override {
-        if (m_window.valid()) m_window->getEventQueue()->mouseMotion(event->x(), event->y());
-    }
-    virtual void wheelEvent(QWheelEvent* event) override {
-        if (m_window.valid()) m_window->getEventQueue()->mouseScroll(event->angleDelta().y() > 0 ? osgGA::GUIEventAdapter::SCROLL_UP : osgGA::GUIEventAdapter::SCROLL_DOWN);
-    }
-
-private:
-    osg::ref_ptr<osgViewer::Viewer> m_viewer;
-    osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> m_window;
-};
 
 
 // ==========================================================
@@ -207,7 +141,7 @@ private:
     }
 
     void setupCentralWidget() {
-        // 中央设置为 OSG 渲染视口
+        // 使用我们独立出来的 OSGWidget 模块
         OSGWidget* osgWidget = new OSGWidget(this);
         setCentralWidget(osgWidget);
     }
