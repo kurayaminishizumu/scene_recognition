@@ -6,7 +6,6 @@
 namespace IOHelper {
 
 QString importPointCloud(QWidget* parent) {
-    // 弹出文件选择框，指定后缀过滤
     QString filePath = QFileDialog::getOpenFileName(
         parent,
         QString::fromUtf8("导入街景点云数据"),
@@ -14,7 +13,6 @@ QString importPointCloud(QWidget* parent) {
         QString::fromUtf8("Point Cloud Files (*.pcd *.ply *.las);;All Files (*.*)")
     );
 
-    // 如果用户没有取消选择
     if (!filePath.isEmpty()) {
         QFileInfo fileInfo(filePath);
         QString msg = QString::fromUtf8("成功获取点云路径：\n") + filePath + 
@@ -42,7 +40,6 @@ QString importImage(QWidget* parent) {
 }
 
 QString exportGISData(QWidget* parent) {
-    // 导出使用 getSaveFileName
     QString filePath = QFileDialog::getSaveFileName(
         parent,
         QString::fromUtf8("导出结构化矢量数据"),

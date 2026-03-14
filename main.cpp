@@ -1,6 +1,6 @@
 /*
  * 课题：城市街景导航地图要素的零样本语义分割与矢量化方法研究
- * 作者：邱臻来 (模拟生成界面工程)
+ * 作者：QZL(模拟生成界面工程)
  * 描述：Qt + OSG 主界面框架 (包含图层树、属性面板、OSG渲染视口)
  */
 
@@ -19,8 +19,10 @@
 #include <QtOpenGLWidgets/QOpenGLWidget>
 #include <QTimer>
 #include <QMouseEvent>
+#include <QStackedWidget>
+#include <QPixmap>
+#include <QPainter>
 
-// OSG 头文件
 #include <osgViewer/Viewer>
 #include <osg/Node>
 #include <osg/Geode>
@@ -31,14 +33,43 @@
 
 #include "inputoutput.h" 
 #include "osgwidget.h" 
-// ==========================================================
-// 1. OSG 渲染视口窗口适配器 (结合 QOpenGLWidget 与 OSG)
-// ==========================================================
 
+class ImageWidget : public QWidget
+{
+public:
+    explicit ImageWidget(QWidget* parent = nullptr) : QWidget(parent) {
+        // 设置深色背景，衬托图像
+        setStyleSheet("background-color: #2b2b2b;");
+    }
 
+    void loadImage(const QString& filePath) {
+        m_pixmap = QPixmap(filePath);
+        update(); // 触发重绘
+    }
 
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QWidget::paintEvent(event);
+        if (m_pixmap.isNull()) return;
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform);
+        
+        // 等比例缩放图像以适应当前窗口大小
+        QPixmap scaledPixmap = m_pixmap.scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        
+        // 计算居中坐标
+        int x = (width() - scaledPixmap.width()) / 2;
+        int y = (height() - scaledPixmap.height()) / 2;
+        
+        painter.drawPixmap(x, y, scaledPixmap);
+    }
+
+private:
+    QPixmap m_pixmap;
+};
 // ==========================================================
-// 2. 主窗口类设计
+// 主窗口类设计
 // ==========================================================
 class MainWindow : public QMainWindow
 {
@@ -64,7 +95,7 @@ private:
         actImportPCL = new QAction(QString::fromUtf8("导入街景点云(PCL)"), this);
         actImportImg = new QAction(QString::fromUtf8("导入全景图像"), this);
         
-        // 核心算法操作 (对应论文主要内容)
+        // 核心算法
         actLoadVL = new QAction(QString::fromUtf8("加载多模态大模型(Qwen VL)"), this);
         actRunSAM = new QAction(QString::fromUtf8("SAM掩码提取(Zero-shot)"), this);
         actVectorize = new QAction(QString::fromUtf8("几何约束矢量化"), this);
@@ -141,21 +172,33 @@ private:
     }
 
     void setupCentralWidget() {
-        // 使用我们独立出来的 OSGWidget 模块
-        OSGWidget* osgWidget = new OSGWidget(this);
-        setCentralWidget(osgWidget);
+        m_centralStack = new QStackedWidget(this);
+
+        // 实例化两个视口
+        m_osgWidget = new OSGWidget(this);
+        m_imageWidget = new ImageWidget(this);
+
+        // 添加到堆叠容器 (索引0为OSG，索引1为Image)
+        m_centralStack->addWidget(m_osgWidget);
+        m_centralStack->addWidget(m_imageWidget);
+
+        // 默认显示 OSG 视口
+        m_centralStack->setCurrentWidget(m_osgWidget);
+
+        setCentralWidget(m_centralStack);
     }
 
     void setupStatusBar() {
         statusBar()->showMessage(QString::fromUtf8("系统就绪 - 等待加载街景数据..."));
     }
-        void connectSignals() {
-        // 使用 Lambda 表达式连接信号与槽
-        
+    
+    void connectSignals() {
         // 1. 导入点云
         connect(actImportPCL, &QAction::triggered, this, [this]() {
             QString path = IOHelper::importPointCloud(this);
             if(!path.isEmpty()) {
+                // 切换回 OSG 三维视口
+                m_centralStack->setCurrentWidget(m_osgWidget);
                 statusBar()->showMessage(QString::fromUtf8("当前加载点云: ") + path);
             }
         });
@@ -164,36 +207,41 @@ private:
         connect(actImportImg, &QAction::triggered, this, [this]() {
             QString path = IOHelper::importImage(this);
             if(!path.isEmpty()) {
+                // 将图像加载到 ImageWidget
+                m_imageWidget->loadImage(path);
+                // 将中央视口切换为二维图像视口
+                m_centralStack->setCurrentWidget(m_imageWidget);
+                
                 statusBar()->showMessage(QString::fromUtf8("当前加载图像: ") + path);
             }
         });
 
-        // 3. 导出GIS数据
+        // 3. 导出GIS数据 (保持不变)
         connect(actExportGIS, &QAction::triggered, this, [this]() {
             QString path = IOHelper::exportGISData(this);
             if(!path.isEmpty()) {
                 statusBar()->showMessage(QString::fromUtf8("数据已导出至: ") + path);
             }
         });
-        
-        // (注：大模型加载和矢量化相关的 Action 可以等后续实现具体算法后再连接)
     }
-
-    // 动作声明
+    
     QAction* actImportPCL;
     QAction* actImportImg;
     QAction* actLoadVL;
     QAction* actRunSAM;
     QAction* actVectorize;
     QAction* actExportGIS;
+
+    QStackedWidget* m_centralStack; // 堆叠容器
+    OSGWidget* m_osgWidget;         // 三维视口
+    ImageWidget* m_imageWidget;     // 二维图像视口
 };
 
 // ==========================================================
-// 3. Main 函数入口
+// Main 函数入口
 // ==========================================================
 int main(int argc, char *argv[])
 {
-    // 针对高分屏适配
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication app(argc, argv);
 
@@ -203,4 +251,4 @@ int main(int argc, char *argv[])
     return app.exec();
 }
 
-#include "main.moc" // 如果你在单个文件里编译包含 Q_OBJECT 的类，需要包含 moc 文件
+#include "main.moc"

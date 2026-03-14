@@ -16,7 +16,7 @@ OSGWidget::OSGWidget(QWidget* parent)
     // 1. 初始化 OSG Viewer
     m_viewer = new osgViewer::Viewer;
     
-    // 【关键】必须设置为单线程，防止 OSG 内部线程与 Qt 的 OpenGL 上下文冲突
+    // 必须设置为单线程，防止 OSG 内部线程与 Qt 的 OpenGL 上下文冲突
     m_viewer->setThreadingModel(osgViewer::Viewer::SingleThreaded);
 
     // 2. 创建嵌入式图形窗口上下文
@@ -50,12 +50,12 @@ osgViewer::Viewer* OSGWidget::getViewer()
 
 void OSGWidget::initDefaultScene()
 {
-    // 创建一个测试用的几何体，象征着我们在课题中即将处理的地理要素
+    // 创建一个测试用的几何体
     osg::ref_ptr<osg::Geode> geode = new osg::Geode;
     
     // 创建一个球体代表初始坐标原点
     osg::ref_ptr<osg::ShapeDrawable> sphere = new osg::ShapeDrawable(new osg::Sphere(osg::Vec3(0.0f, 0.0f, 0.0f), 1.0f));
-    sphere->setColor(osg::Vec4(0.2f, 0.6f, 0.8f, 1.0f)); // 科技蓝，符合智慧城市主题
+    sphere->setColor(osg::Vec4(0.2f, 0.6f, 0.8f, 1.0f)); 
     geode->addDrawable(sphere.get());
 
     m_viewer->setSceneData(geode.get());
@@ -63,7 +63,7 @@ void OSGWidget::initDefaultScene()
 
 void OSGWidget::initializeGL()
 {
-    // 在这里可以进行一些 OpenGL 全局状态的初始化，通常 OSG 会自己管理
+    // 在这里可以进行一些 OpenGL 全局状态的初始化
 }
 
 void OSGWidget::resizeGL(int width, int height)
