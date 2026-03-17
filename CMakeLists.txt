@@ -20,10 +20,11 @@ find_package(GDAL REQUIRED)
 find_package(onnxruntime REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets OpenGL)
 
-add_executable(${PROJECT_NAME} 
+add_executable(${PROJECT_NAME} WIN32
     main.cpp 
     inputoutput.cpp
     osgwidget.cpp 
+    pcl2osg.cpp
 )
 
 add_definitions(${PCL_DEFINITIONS})
