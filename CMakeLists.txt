@@ -25,6 +25,7 @@ add_executable(${PROJECT_NAME} WIN32
     inputoutput.cpp
     osgwidget.cpp 
     pcl2osg.cpp
+    PointCloudPreprocess.cpp 
 )
 
 add_definitions(${PCL_DEFINITIONS})
