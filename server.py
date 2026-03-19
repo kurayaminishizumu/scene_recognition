@@ -2,60 +2,60 @@ import base64
 import cv2
 import numpy as np
 import uvicorn
+import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
+from PIL import Image
+import io
+from transformers import OwlViTProcessor, OwlViTForObjectDetection
 
 # ==========================================
-# 1. 初始化 FastAPI 应用
+# 1. 初始化 FastAPI 应用与模型加载
 # ==========================================
 app = FastAPI(
     title="街景要素提取微服务",
-    description="基于 VLM + SAM 的零样本图像语义分割后端",
-    version="1.0.0"
+    description="基于 OWL-ViT + SAM 的零样本图像语义分割后端",
+    version="1.1.0"
 )
 
+# 强制使用 CPU 运行，确保 2G 显存环境绝对稳定
+DEVICE = "cpu"
+MODEL_ID = "google/owlvit-base-patch32"
+
+print(f"[*] 正在初始化 OWL-ViT 模型 ({MODEL_ID})...")
+processor = OwlViTProcessor.from_pretrained(MODEL_ID)
+model = OwlViTForObjectDetection.from_pretrained(MODEL_ID).to(DEVICE)
+model.eval()
+print("[+] 模型加载完毕，服务器准备就绪。")
+
 # ==========================================
-# 2. 定义 API 数据交互格式 (Pydantic 模型)
+# 2. 定义 API 数据交互格式
 # ==========================================
 class ExtractionRequest(BaseModel):
-    """前端 (C++) 发送的请求体结构"""
-    image_base64: str = Field(..., description="原始街景图像的 Base64 编码字符串 (JPEG/PNG格式)")
-    prompt: str = Field(..., description="要提取的要素自然语言描述，例如 'traffic sign', 'window'")
+    image_base64: str = Field(..., description="原始图像 Base64")
+    prompt: str = Field(..., description="目标描述，如 'traffic sign'")
 
 class ExtractionResponse(BaseModel):
-    """后端返回给前端 (C++) 的响应体结构"""
-    status: str = Field(..., description="请求状态：'success' 或 'error'")
-    message: str = Field(default="", description="附加信息或错误提示")
-    label: str = Field(default="", description="识别出的要素类别")
-    confidence: float = Field(default=0.0, description="VLM 识别置信度 (0.0 ~ 1.0)")
-    bbox: List[int] = Field(default_factory=list, description="边界框 [x, y, width, height]")
-    mask_base64: str = Field(default="", description="单通道二值 Mask 图像的 Base64 编码字符串")
+    status: str
+    message: str
+    label: str
+    confidence: float
+    bbox: List[int] # [xmin, ymin, xmax, ymax]
+    mask_base64: str
 
 # ==========================================
 # 3. 辅助工具函数
 # ==========================================
 def decode_base64_to_cv2(base64_string: str) -> np.ndarray:
-    """将 Base64 字符串解码为 OpenCV 图像 (cv2.Mat / numpy array)"""
-    try:
-        # 移除可能存在的前缀 (如 "data:image/jpeg;base64,")
-        if "," in base64_string:
-            base64_string = base64_string.split(",")[1]
-            
-        img_data = base64.b64decode(base64_string)
-        np_arr = np.frombuffer(img_data, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if img is None:
-            raise ValueError("图像解码失败，数据损坏或格式不支持")
-        return img
-    except Exception as e:
-        raise ValueError(f"Base64 解码异常: {str(e)}")
+    if "," in base64_string:
+        base64_string = base64_string.split(",")[1]
+    img_data = base64.b64decode(base64_string)
+    np_arr = np.frombuffer(img_data, np.uint8)
+    return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-def encode_cv2_to_base64(image: np.ndarray, ext: str = ".png") -> str:
-    """将 OpenCV 图像编码为 Base64 字符串"""
-    success, buffer = cv2.imencode(ext, image)
-    if not success:
-        raise ValueError("图像编码失败")
+def encode_cv2_to_base64(image: np.ndarray) -> str:
+    _, buffer = cv2.imencode(".png", image)
     return base64.b64encode(buffer).decode("utf-8")
 
 # ==========================================
@@ -63,68 +63,81 @@ def encode_cv2_to_base64(image: np.ndarray, ext: str = ".png") -> str:
 # ==========================================
 @app.get("/")
 def health_check():
-    """健康检查接口，用于测试服务器是否启动"""
-    return {"status": "running", "service": "VLM-SAM-Backend"}
+    return {"status": "running", "model": "OWL-ViT"}
 
 @app.post("/api/extract_element", response_model=ExtractionResponse)
 async def extract_element(request: ExtractionRequest):
-    """
-    核心接口：接收图像与指令，返回 BBox 与 Mask
-    """
     try:
-        # 1. 解析前端传来的 Base64 图像
-        img = decode_base64_to_cv2(request.image_base64)
+        # 1. 解码前端图像
+        img_cv = decode_base64_to_cv2(request.image_base64)
+        if img_cv is None:
+            raise ValueError("图像解码失败")
+        
+        # 将 OpenCV (BGR) 转为 PIL (RGB) 供模型使用
+        img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img_rgb)
+        
         target_prompt = request.prompt
+        print(f"[*] 收到请求 | 目标: '{target_prompt}'")
+
+        # 2. OWL-ViT 推理获取 BBox
+        inputs = processor(text=[[target_prompt]], images=img_pil, return_tensors="pt").to(DEVICE)
         
-        print(f"[*] 收到提取请求 | 目标: '{target_prompt}' | 图像尺寸: {img.shape}")
-
-        # -----------------------------------------------------------------
-        # [预留位置：任务 2.2 & 2.3]
-        # 这里是您后续接入 Ollama (VLM) 和 SAM (ONNX) 的核心逻辑区
-        # 
-        # 步骤 A: 调用 Ollama (Qwen-VL) 获取 BBox
-        # bbox = call_ollama_for_bbox(img, target_prompt)
-        #
-        # 步骤 B: 将图像和 BBox 输入 SAM 模型获取 Mask
-        # mask = call_sam_for_mask(img, bbox)
-        # -----------------------------------------------------------------
-
-        # [模拟执行]：为了让你现阶段能跑通前后端通信，这里生成一个伪造的结果
-        # 假设 VLM 找到了一个区域 (x=100, y=100, w=200, h=200)
-        fake_bbox = [100, 100, 200, 200]
+        with torch.no_grad():
+            outputs = model(**inputs)
         
-        # 假设 SAM 生成了一个白色的圆形掩码
-        fake_mask = np.zeros(img.shape[:2], dtype=np.uint8)
-        cv2.circle(fake_mask, (200, 200), 100, 255, -1)
+        # 3. 后处理：转换坐标
+        target_sizes = torch.Tensor([img_pil.size[::-1]]) # [h, w]
+        results = processor.image_processor.post_process_object_detection(
+            outputs=outputs, 
+            target_sizes=target_sizes, 
+            threshold=0.1 # 这里的阈值可以根据需要调整
+        )[0]
+
+        # 4. 提取结果
+        boxes = results["boxes"].cpu().numpy()
+        scores = results["scores"].cpu().numpy()
         
-        # 2. 将 Mask 图像重新编码为 Base64 准备返回给 C++
-        mask_b64 = encode_cv2_to_base64(fake_mask, ext=".png")
+        if len(boxes) > 0:
+            # 找到置信度最高的索引
+            best_idx = np.argmax(scores)
+            best_box = boxes[best_idx].astype(int).tolist() # [xmin, ymin, xmax, ymax]
+            best_score = float(scores[best_idx])
+            
+            print(f"[+] 识别成功: {target_prompt} | 置信度: {best_score:.2f} | 坐标: {best_box}")
 
-        # 3. 构造并返回 JSON 响应
-        return ExtractionResponse(
-            status="success",
-            message="要素提取成功 (当前为模拟数据)",
-            label=target_prompt,
-            confidence=0.98,
-            bbox=fake_bbox,
-            mask_base64=mask_b64
-        )
+            # ---------------------------------------------------------
+            # [占位] 以后这里接入 MobileSAM 推理 Mask
+            # 目前暂时返回一个基于 BBox 的模拟矩形 Mask 供前端测试
+            mask_preview = np.zeros(img_cv.shape[:2], dtype=np.uint8)
+            cv2.rectangle(mask_preview, (best_box[0], best_box[1]), (best_box[2], best_box[3]), 255, -1)
+            # ---------------------------------------------------------
 
-    except ValueError as ve:
-        # 处理图像解码等已知错误
-        raise HTTPException(status_code=400, detail=str(ve))
+            return ExtractionResponse(
+                status="success",
+                message="识别成功",
+                label=target_prompt,
+                confidence=best_score,
+                bbox=best_box,
+                mask_base64=encode_cv2_to_base64(mask_preview)
+            )
+        else:
+            return ExtractionResponse(
+                status="error",
+                message="未能在图中找到指定目标",
+                label=target_prompt,
+                confidence=0.0,
+                bbox=[],
+                mask_base64=""
+            )
+
     except Exception as e:
-        # 处理模型推理等未知错误
-        print(f"[!] 服务器内部错误: {str(e)}")
-        raise HTTPException(status_code=500, detail="服务器内部推理错误")
+        print(f"[!] 错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # 5. 启动入口
 # ==========================================
 if __name__ == "__main__":
-    # 运行服务器 (默认监听 0.0.0.0:8000)
-    print("="*50)
-    print("启动街景要素提取微服务...")
-    print("API 接口文档地址: http://127.0.0.1:8000/docs")
-    print("="*50)
+    # 建议使用固定的端口，方便 C++ 前端调用
     uvicorn.run(app, host="0.0.0.0", port=8000)

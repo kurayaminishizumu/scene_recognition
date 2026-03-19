@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QPixmap>
 #include <QImage>
+#include <QRect>
 #include <QPointF>
 #include <opencv2/core.hpp>
 
@@ -15,50 +16,52 @@ public:
     explicit ImageWidget(QWidget* parent = nullptr);
     ~ImageWidget() override = default;
 
-    // 核心接口：直接加载 cv::Mat
+    // 1. 核心图像加载接口
     void setImage(const cv::Mat& mat);
-    
-    // 兼容接口：通过文件路径加载（内部自动转为 cv::Mat）
     void loadImage(const QString& filePath);
-
-    // 获取当前显示的 cv::Mat 数据
     cv::Mat getImage() const;
 
-    // 视角复位：自适应居中显示
+    // 2. 提供给 MainWindow 调用：获取当前显示的位图用于发送给后端
+    QPixmap currentPixmap() const;
+
+    // 3. 接收 AI 推理结果的接口
+    void setDetectionResult(const QRect& rect, const QImage& mask);
+
+    // 清除当前的检测结果
+    void clearDetection();
+
+    // 4. 视角控制
     void resetView();
 
 protected:
-    // 重写绘制事件
     void paintEvent(QPaintEvent* event) override;
-    
-    // 重写窗口大小改变事件（用于初次加载或调整窗口时自动居中）
     void resizeEvent(QResizeEvent* event) override;
-
-    // 重写鼠标交互事件（拖拽平移）
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
-    
-    // 重写双击事件（双击恢复原始视图）
     void mouseDoubleClickEvent(QMouseEvent* event) override;
-
-    // 重写滚轮事件（缩放）
     void wheelEvent(QWheelEvent* event) override;
 
 private:
-    cv::Mat m_cvImage;       // 缓存的原始 OpenCV 图像数据
-    QPixmap m_pixmap;        // 用于 Qt 高效绘制的位图
+    // 原始图像数据
+    cv::Mat m_cvImage;       
+    QPixmap m_pixmap;        
 
-    // 视图变换参数
-    double m_scaleFactor;    // 当前缩放比例
-    QPointF m_offset;        // 当前图像相对于视口左上角的偏移量
+    // 推理结果缓存
+    QRect m_detectionRect;   // 存储后端返回的像素级坐标
+    QImage m_maskImage;      // 存储后端返回的掩膜图
+    bool m_hasResult;        // 是否有识别结果需要绘制的标志位
+
+    // 视图变换参数（缩放和平移）
+    double m_scaleFactor;    
+    QPointF m_offset;        
     
-    // 拖拽状态记录
+    // 鼠标交互状态
     bool m_isDragging;
-    QPointF m_lastMousePos;  // 上一次鼠标的位置坐标
+    QPointF m_lastMousePos;  
     
-    // 内部工具：将 cv::Mat 转换为 QPixmap
     QPixmap matToPixmap(const cv::Mat& mat);
+    QRect mapToView(const QRect& pixelRect) const;
 };
 
 #endif // IMAGEWIDGET_H

@@ -2,6 +2,14 @@
  * 课题：城市街景导航地图要素的零样本语义分割与矢量化方法研究
  * 描述：Qt 主界面框架 - [2D图像识别与矢量化核心版]
  */
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QBuffer>
+#include <QInputDialog>
 
 #include <QApplication>
 #include <QMainWindow>
@@ -35,17 +43,123 @@ public:
     {
         setWindowTitle(QString::fromUtf8("城市街景要素智能化处理系统 - [零样本语义分割与矢量化]"));
         resize(1280, 800);
+        // 初始化网络管理器
+        m_networkManager = new QNetworkAccessManager(this); 
 
         setupActions();
-        setupMenus();
+        //setupMenus();
         setupToolBars();
         setupDockWidgets();
         setupCentralWidget();
         setupStatusBar();
         connectSignals(); 
+        
     }
 
 private:
+ void updatePropertyTable(const QString& label, double confidence = -1.0) {
+        if (!m_propTable) return;
+
+        // 更新要素类别 (第0行, 第1列)
+        if (!label.isEmpty()) {
+            m_propTable->item(0, 1)->setText(label);
+        }
+
+        // 更新置信度为百分比 (第4行, 第1列)
+        if (confidence >= 0) {
+            QString confStr = QString::number(confidence * 100.0, 'f', 1) + "%";
+            m_propTable->item(4, 1)->setText(confStr);
+        } else {
+            m_propTable->item(4, 1)->setText(QString::fromUtf8("计算中..."));
+        }
+    }
+    void requestAIInference(const QString &prompt) {
+        QPixmap currentPix = m_imageWidget->currentPixmap();
+        if (currentPix.isNull()) {
+            QMessageBox::warning(this, "错误", "请先导入街景图像！");
+            return;
+        }
+
+        // 任务2：输入后立即更新属性面板的要素类别
+        updatePropertyTable(prompt, -1.0); 
+
+        statusBar()->showMessage(QString::fromUtf8("AI 正在识别中..."));
+
+        QImage img = currentPix.toImage();
+        QByteArray ba;
+        QBuffer buffer(&ba);
+        buffer.open(QIODevice::WriteOnly);
+        img.save(&buffer, "PNG");
+        QString base64Image = QString::fromLatin1(ba.toBase64().data());
+
+        QJsonObject jsonObj;
+        jsonObj["image_base64"] = base64Image;
+        jsonObj["prompt"] = prompt;
+        
+        QNetworkRequest request(QUrl("http://127.0.0.1:8000/api/extract_element"));
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+        QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(jsonObj).toJson());
+
+        connect(reply, &QNetworkReply::finished, this, [this, reply, prompt]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QJsonObject response = QJsonDocument::fromJson(reply->readAll()).object();
+                if (response["status"].toString() == "success") {
+                    // 解析坐标
+                    QJsonArray bboxArr = response["bbox"].toArray();
+                    QRect rect(bboxArr[0].toInt(), bboxArr[1].toInt(), 
+                               bboxArr[2].toInt() - bboxArr[0].toInt(), 
+                               bboxArr[3].toInt() - bboxArr[1].toInt());
+                    
+                    // 解析 Mask
+                    QImage maskImg;
+                    maskImg.loadFromData(QByteArray::fromBase64(response["mask_base64"].toString().toLatin1()), "PNG");
+
+                    m_imageWidget->setDetectionResult(rect, maskImg);
+                    
+                    // 任务3：更新识别置信度为百分比
+                    double conf = response["confidence"].toDouble();
+                    updatePropertyTable(prompt, conf);
+
+                    statusBar()->showMessage(QString::fromUtf8("识别成功！"));
+                }
+            } else {
+                QMessageBox::critical(this, "错误", "后端服务未响应");
+            }
+            reply->deleteLater();
+        });
+    }
+
+
+    // --- 新增：解析后端返回的 JSON ---
+    void parseAIResponse(const QByteArray &data) {
+        QJsonDocument jsonDoc = QJsonDocument::fromJson(data);
+        QJsonObject jsonObj = jsonDoc.object();
+
+        if (jsonObj["status"].toString() == "success") {
+            // 解析 BBox: [xmin, ymin, xmax, ymax]
+            QJsonArray bboxArr = jsonObj["bbox"].toArray();
+            if (bboxArr.size() == 4) {
+                QRect rect(bboxArr[0].toInt(), bboxArr[1].toInt(), 
+                           bboxArr[2].toInt() - bboxArr[0].toInt(), 
+                           bboxArr[3].toInt() - bboxArr[1].toInt());
+                
+                // 解析 Mask Base64
+                QString maskB64 = jsonObj["mask_base64"].toString();
+                QByteArray maskData = QByteArray::fromBase64(maskB64.toLatin1());
+                QImage maskImg;
+                maskImg.loadFromData(maskData, "PNG");
+
+                // 将结果更新到 ImageWidget 进行绘制
+                // 假设 ImageWidget 有这个接口来接收 BBox 和 Mask
+                m_imageWidget->setDetectionResult(rect, maskImg);
+                
+                statusBar()->showMessage(QString::fromUtf8("识别成功！置信度: ") + QString::number(jsonObj["confidence"].toDouble()));
+            }
+        } else {
+            statusBar()->showMessage(QString::fromUtf8("识别失败: ") + jsonObj["message"].toString());
+        }
+    }
     void setupActions() {
         // 数据操作
         actImportImg = new QAction(QString::fromUtf8("导入街景图像"), this);
@@ -85,45 +199,40 @@ private:
 
     void setupDockWidgets() {
         // --- 左侧：图层树控件 ---
-        QDockWidget* leftDock = new QDockWidget(QString::fromUtf8("图像图层树"), this);
-        leftDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-        
-        QTreeWidget* layerTree = new QTreeWidget(leftDock);
-        layerTree->setHeaderLabel(QString::fromUtf8("2D 图像处理流层级"));
-        
-        // 按照新计划更新图层节点
-        QTreeWidgetItem* rootNode = new QTreeWidgetItem(layerTree, QStringList(QString::fromUtf8("Root: 街景图像")));
-        new QTreeWidgetItem(rootNode, QStringList(QString::fromUtf8("原始全景图 (RGB)")));
-        new QTreeWidgetItem(rootNode, QStringList(QString::fromUtf8("VLM 目标边界框 (BBox)")));
-        new QTreeWidgetItem(rootNode, QStringList(QString::fromUtf8("SAM 像素级掩码 (Mask)")));
-        new QTreeWidgetItem(rootNode, QStringList(QString::fromUtf8("OpenCV 矢量多边形")));
-        rootNode->setExpanded(true);
-        
-        leftDock->setWidget(layerTree);
-        addDockWidget(Qt::LeftDockWidgetArea, leftDock);
+        //QDockWidget* leftDock = new QDockWidget(QString::fromUtf8("图像图层树"), this);
+        //addDockWidget(Qt::LeftDockWidgetArea, leftDock);
 
-        // --- 右侧：属性面板 ---
+        // --- 右侧：要素属性面板 (将 m_propTable 设为成员变量) ---
         QDockWidget* rightDock = new QDockWidget(QString::fromUtf8("要素属性面板"), this);
-        rightDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+        m_propTable = new QTableWidget(5, 2, rightDock); // 使用成员变量
+        m_propTable->setHorizontalHeaderLabels(QStringList() << QString::fromUtf8("属性名") << QString::fromUtf8("属性值"));
+        m_propTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        m_propTable->verticalHeader()->setVisible(false);
         
-        QTableWidget* propTable = new QTableWidget(5, 2, rightDock);
-        propTable->setHorizontalHeaderLabels(QStringList() << QString::fromUtf8("属性名") << QString::fromUtf8("属性值"));
-        propTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-        propTable->verticalHeader()->setVisible(false);
-        
-        // 模拟 2D 矢量化后的属性数据
-        propTable->setItem(0, 0, new QTableWidgetItem(QString::fromUtf8("要素类别")));
-        propTable->setItem(0, 1, new QTableWidgetItem(QString::fromUtf8("交通标志 (Traffic Sign)")));
-        propTable->setItem(1, 0, new QTableWidgetItem(QString::fromUtf8("识别模型")));
-        propTable->setItem(1, 1, new QTableWidgetItem(QString::fromUtf8("llava-phi3 + SAM")));
-        propTable->setItem(2, 0, new QTableWidgetItem(QString::fromUtf8("简化顶点数")));
-        propTable->setItem(2, 1, new QTableWidgetItem(QString::fromUtf8("8 (approxPolyDP)")));
-        propTable->setItem(3, 0, new QTableWidgetItem(QString::fromUtf8("像素面积")));
-        propTable->setItem(3, 1, new QTableWidgetItem(QString::fromUtf8("4,520 px²")));
-        propTable->setItem(4, 0, new QTableWidgetItem(QString::fromUtf8("识别置信度")));
-        propTable->setItem(4, 1, new QTableWidgetItem(QString::fromUtf8("96.2%")));
+        // 初始化表格内容
+        QStringList propNames = { 
+            QString::fromUtf8("要素类别"), 
+            QString::fromUtf8("识别模型"), 
+            QString::fromUtf8("简化顶点数"), 
+            QString::fromUtf8("像素面积"), 
+            QString::fromUtf8("识别置信度") 
+        };
+        QStringList propValues = { 
+            QString::fromUtf8("待识别"), 
+            QString::fromUtf8("Owl-ViT + SAM"), 
+            QString::fromUtf8("待计算"), 
+            QString::fromUtf8("待计算"), 
+            QString::fromUtf8("0.0%") 
+        };
 
-        rightDock->setWidget(propTable);
+        for(int i=0; i<5; ++i) {
+            m_propTable->setItem(i, 0, new QTableWidgetItem(propNames[i]));
+            m_propTable->setItem(i, 1, new QTableWidgetItem(propValues[i]));
+            // 设置第一列不可编辑
+            m_propTable->item(i, 0)->setFlags(m_propTable->item(i, 0)->flags() & ~Qt::ItemIsEditable);
+        }
+
+        rightDock->setWidget(m_propTable);
         addDockWidget(Qt::RightDockWidgetArea, rightDock);
     }
 
@@ -138,41 +247,35 @@ private:
     }
     
     void connectSignals() {
-        // 1. 导入图像
+        // 导入图像
         connect(actImportImg, &QAction::triggered, this, [this]() {
-            // 这里为了演示代码能独立运行，使用了 QFileDialog。
-            // 实际您可以换回：QString path = IOHelper::importImage(this);
-            QString path = QFileDialog::getOpenFileName(this, QString::fromUtf8("选择街景图像"), "", "Images (*.png *.xpm *.jpg *.jpeg)");
+            QString path = QFileDialog::getOpenFileName(this, "Open Image", "", "Images (*.png *.jpg)");
             if(!path.isEmpty()) {
                 m_imageWidget->loadImage(path);
-                statusBar()->showMessage(QString::fromUtf8("当前加载图像: ") + path);
+                // 加载新图时清空属性表
+                updatePropertyTable(QString::fromUtf8("待识别"), 0.0);
             }
         });
 
-        // 2. 导入点云 (提示延后)
-        connect(actImportPCL, &QAction::triggered, this, [this]() {
-            QMessageBox::information(this, QString::fromUtf8("提示"), 
-                QString::fromUtf8("三维点云处理功能已延后规划，当前版本专注于 2D 图像的语义分割与 OpenCV 矢量化流程。"));
-        });
-
-        // 3. 导出GIS数据
-        connect(actExportGIS, &QAction::triggered, this, [this]() {
-            // 模拟导出操作
-            QString path = QFileDialog::getSaveFileName(this, QString::fromUtf8("导出 GeoJSON"), "output.geojson", "GeoJSON (*.geojson)");
-            if(!path.isEmpty()) {
-                statusBar()->showMessage(QString::fromUtf8("GeoJSON 数据已准备导出至: ") + path);
+        // 识别动作
+        connect(actLoadVL, &QAction::triggered, this, [this]() {
+            bool ok;
+            QString text = QInputDialog::getText(this, "Input", "Prompt:", QLineEdit::Normal, "traffic sign", &ok);
+            if (ok && !text.isEmpty()) {
+                requestAIInference(text);
             }
         });
     }
-    
+
+    QTableWidget* m_propTable;
+    QNetworkAccessManager* m_networkManager; // 新增网络管理器
+    ImageWidget* m_imageWidget;
     QAction* actImportImg;
     QAction* actImportPCL;
     QAction* actLoadVL;
     QAction* actRunSAM;
     QAction* actVectorize;
     QAction* actExportGIS;
-
-    ImageWidget* m_imageWidget;     // 唯一的中央二维图像视口
 };
 
 // ==========================================================
