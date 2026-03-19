@@ -6,9 +6,11 @@
 
 namespace IOHelper {
     
-    QString importPointCloud(QWidget* parent);
+    // 仅保留 2D 图像导入
     QString importImage(QWidget* parent);
-    QString exportGISData(QWidget* parent);
+    
+    // 明确命名为导出 GeoJSON（取代原有的 exportGISData）
+    QString exportGeoJSON(QWidget* parent);
 
 }
 
