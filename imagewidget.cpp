@@ -155,6 +155,24 @@ void ImageWidget::resizeEvent(QResizeEvent* event)
 
 void ImageWidget::mousePressEvent(QMouseEvent* event)
 {
+    // 只有在左键点击且当前有识别结果时才进行判定
+    if (event->button() == Qt::LeftButton && m_hasResult) {
+        // 1. 将鼠标点击的屏幕坐标 转换为 图像像素坐标
+        // 转换公式：图像坐标 = (屏幕坐标 - 偏移量) / 缩放比例
+        QPointF imgPos = (event->pos() - m_offset) / m_scaleFactor;
+
+        // 2. 遍历所有绿框，检查点击点是否在框内
+        // 建议倒序遍历，这样如果框有重叠，会优先选中最上层（最后画）的框
+        for (int i = m_detectionRects.size() - 1; i >= 0; --i) {
+            if (m_detectionRects[i].contains(imgPos.toPoint())) {
+                // 3. 触发信号，并直接返回（不再执行拖拽逻辑）
+                emit boxClicked(i, m_detectionRects[i]);
+                return; 
+            }
+        }
+    }
+
+    // 如果没点中框，则执行原有的拖拽逻辑
     if (event->button() == Qt::LeftButton) {
         m_isDragging = true;
         m_lastMousePos = event->pos();

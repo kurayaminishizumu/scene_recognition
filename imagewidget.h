@@ -32,6 +32,9 @@ public:
 
     // 4. 视角控制
     void resetView();
+    signals:
+    // 当某个绿框被点击时发出信号，传递该框在列表中的索引和矩形区域
+    void boxClicked(int index, QRect rect);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

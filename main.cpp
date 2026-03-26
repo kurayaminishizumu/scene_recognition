@@ -137,60 +137,46 @@ private:
     }
 
     // --- MobileSAM 高精度掩码分割请求 ---
-    void requestSAMSegmentation() {
-        if (m_currentBBoxArray.isEmpty() || m_currentRects.isEmpty()) {
-            QMessageBox::warning(this, QString::fromUtf8("提示"), QString::fromUtf8("请先运行 VLM 模型获取目标边界框 (BBox)！"));
-            return;
-        }
+  // --- 修改后：针对特定索引的 SAM 分割请求 ---
+    void requestSAMSegmentation(int index) {
+        // 这里的 index 是通过点击传进来的
+        if (m_currentBBoxArray.isEmpty() || index >= m_currentBBoxArray.size()) return;
 
         QPixmap currentPix = m_imageWidget->currentPixmap();
         if (currentPix.isNull()) return;
 
-        statusBar()->showMessage(QString::fromUtf8("MobileSAM 正在进行像素级分割，请稍候..."));
+        statusBar()->showMessage(QString(QString::fromUtf8("正在提取目标 Obj %1 的掩码...")).arg(index + 1));
 
+        // 构造 Base64 (逻辑同前)
         QImage img = currentPix.toImage();
-        QByteArray ba;
-        QBuffer buffer(&ba);
-        buffer.open(QIODevice::WriteOnly);
+        QByteArray ba; QBuffer buffer(&ba); buffer.open(QIODevice::WriteOnly);
         img.save(&buffer, "PNG");
         QString base64Image = QString::fromLatin1(ba.toBase64().data());
 
+        // 构造 JSON：只发送被点中的那个 BBox 坐标
         QJsonObject jsonObj;
         jsonObj["image_base64"] = base64Image;
-        
-        // 注意：目前后端的 SAM 接口定义为接收单个 bbox: List[int]。
-        // 为了稳定跑通，我们提取 VLM 识别出的第一个（置信度最高）框传给 SAM。
-        jsonObj["bbox"] = m_currentBBoxArray[0].toArray(); 
-        
+        jsonObj["bbox"] = m_currentBBoxArray[index].toArray(); 
+
         QNetworkRequest request(QUrl("http://127.0.0.1:8000/api/run_sam"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
         QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(jsonObj).toJson());
 
-        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, index]() {
             if (reply->error() == QNetworkReply::NoError) {
                 QJsonObject response = QJsonDocument::fromJson(reply->readAll()).object();
                 if (response["status"].toString() == "success") {
-                    
-                    // 解析 SAM 返回的高精度 Mask
                     QImage maskImg;
                     maskImg.loadFromData(QByteArray::fromBase64(response["mask_base64"].toString().toLatin1()), "PNG");
 
-                    // 重新绘制：保留 VLM 框出的所有绿框，但贴上由 SAM 生成的掩膜 Mask
+                    // 显示结果：只更新当前被点中目标的 Mask，保持绿框不变
                     m_imageWidget->setDetectionResult(m_currentRects, maskImg);
                     
-                    // 更新属性面板（模拟计算面积和顶点数）
-                    if (m_propTable) {
-                        m_propTable->item(2, 1)->setText(QString::fromUtf8("生成中...")); // 为下一阶段 OpenCV 矢量化预留
-                        m_propTable->item(3, 1)->setText(QString::fromUtf8("分析中..."));
-                    }
-
-                    statusBar()->showMessage(QString::fromUtf8("SAM 分割成功！"));
-                } else {
-                    statusBar()->showMessage(QString::fromUtf8("SAM 分割失败: ") + response["message"].toString());
+                    // 更新属性面板
+                    m_propTable->item(0, 1)->setText(QString(QString::fromUtf8("已识别: Obj %1")).arg(index + 1));
+                    statusBar()->showMessage(QString(QString::fromUtf8("目标 Obj %1 分割完成")).arg(index + 1));
                 }
-            } else {
-                QMessageBox::critical(this, QString::fromUtf8("错误"), QString::fromUtf8("SAM 后端服务未响应"));
             }
             reply->deleteLater();
         });
@@ -295,9 +281,16 @@ private:
             }
         });
 
-        // 分割动作 (SAM)
+        // [核心新增] 连接 ImageWidget 的点击信号到 SAM 请求
+        connect(m_imageWidget, &ImageWidget::boxClicked, this, [this](int index, QRect rect) {
+            // 当用户点击绿框时，自动触发该目标的 SAM 分割
+            requestSAMSegmentation(index);
+        });
+        
+        // 修改原有的 actRunSAM 动作：默认分割第一个，或者提示用户点击
         connect(actRunSAM, &QAction::triggered, this, [this]() {
-            requestSAMSegmentation();
+             QMessageBox::information(this, QString::fromUtf8("操作提示"), 
+                                      QString::fromUtf8("请直接在图像中点击您想分割的绿色目标框！"));
         });
     }
 
