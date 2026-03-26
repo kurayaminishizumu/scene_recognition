@@ -24,20 +24,18 @@ QPixmap ImageWidget::currentPixmap() const
     return m_pixmap;
 }
 
-void ImageWidget::setDetectionResult(const QRect& rect, const QImage& mask)
+void ImageWidget::setDetectionResult(const QList<QRect>& rects, const QImage& mask)
 {
-    m_detectionRect = rect;
-    // 将传入的 Mask 转换为带颜色的半透明图（例如青色）
-    // 如果后端传回的是 0/255 的灰度图，这里直接存储即可，后续在 paintEvent 处理透明度
+    m_detectionRects = rects; // 存储多个框
     m_maskImage = mask;
     m_hasResult = true;
-    update(); // 触发重绘
+    update();
 }
 
 void ImageWidget::clearDetection()
 {
     m_hasResult = false;
-    m_detectionRect = QRect();
+    m_detectionRects.clear(); // 清空列表
     m_maskImage = QImage();
     update();
 }
@@ -118,23 +116,30 @@ void ImageWidget::paintEvent(QPaintEvent* event)
         }
 
         // B. 绘制 BBox 矩形框
-        if (m_detectionRect.isValid()) {
-            QPen pen(Qt::green, 3); // 绿色粗线条
+        if (!m_detectionRects.isEmpty()) {
+            QPen pen(Qt::green, 3);
             pen.setJoinStyle(Qt::MiterJoin);
             painter.setPen(pen);
             painter.setBrush(Qt::NoBrush);
-            // 直接使用原始像素坐标绘制，Qt 矩阵会自动将其缩放到屏幕位置
-            painter.drawRect(m_detectionRect);
 
-            // 绘制标签背景
-            painter.setBrush(QColor(0, 255, 0, 150));
-            QRect labelRect(m_detectionRect.x(), m_detectionRect.y() - 25, 100, 25);
-            painter.drawRect(labelRect);
-            
-            // 绘制文字
-            painter.setPen(Qt::black);
-            painter.setFont(QFont("Arial", 12, QFont::Bold));
-            painter.drawText(labelRect, Qt::AlignCenter, "Target");
+            for (int i = 0; i < m_detectionRects.size(); ++i) {
+                QRect rect = m_detectionRects[i];
+                painter.drawRect(rect);
+
+                // 绘制标签背景
+                painter.setBrush(QColor(0, 255, 0, 150));
+                QRect labelRect(rect.x(), rect.y() - 25, 100, 25);
+                painter.drawRect(labelRect);
+                
+                // 绘制文字 (如 Target 1, Target 2...)
+                painter.setPen(Qt::black);
+                painter.setFont(QFont("Arial", 12, QFont::Bold));
+                painter.drawText(labelRect, Qt::AlignCenter, QString("Obj %1").arg(i + 1));
+                
+                // 恢复无刷画笔，准备画下一个框
+                painter.setBrush(Qt::NoBrush);
+                painter.setPen(pen);
+            }
         }
     }
     

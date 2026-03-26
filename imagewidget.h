@@ -25,7 +25,7 @@ public:
     QPixmap currentPixmap() const;
 
     // 3. 接收 AI 推理结果的接口
-    void setDetectionResult(const QRect& rect, const QImage& mask);
+    void setDetectionResult(const QList<QRect>& rects, const QImage& mask);
 
     // 清除当前的检测结果
     void clearDetection();
@@ -47,8 +47,7 @@ private:
     cv::Mat m_cvImage;       
     QPixmap m_pixmap;        
 
-    // 推理结果缓存
-    QRect m_detectionRect;   // 存储后端返回的像素级坐标
+    QList<QRect> m_detectionRects;  // 存储后端返回的像素级坐标
     QImage m_maskImage;      // 存储后端返回的掩膜图
     bool m_hasResult;        // 是否有识别结果需要绘制的标志位
 
