@@ -1,7 +1,3 @@
-/*
- * 课题：城市街景导航地图要素的零样本语义分割与矢量化方法研究
- * 描述：Qt 主界面框架 - [2D图像识别与矢量化核心版]
- */
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -47,7 +43,6 @@ public:
         m_networkManager = new QNetworkAccessManager(this); 
 
         setupActions();
-        //setupMenus();
         setupToolBars();
         setupDockWidgets();
         setupCentralWidget();
@@ -165,7 +160,7 @@ private:
         actImportImg = new QAction(QString::fromUtf8("导入街景图像"), this);
         actImportPCL = new QAction(QString::fromUtf8("导入街景点云(PCL) [延后]"), this);
         
-        // 核心算法 (针对2D新计划)
+        // 核心算法
         actLoadVL = new QAction(QString::fromUtf8("加载VLM模型(获取BBox)"), this);
         actRunSAM = new QAction(QString::fromUtf8("SAM掩码分割(Mask)"), this);
         actVectorize = new QAction(QString::fromUtf8("OpenCV多边形矢量化"), this);
@@ -198,10 +193,6 @@ private:
     }
 
     void setupDockWidgets() {
-        // --- 左侧：图层树控件 ---
-        //QDockWidget* leftDock = new QDockWidget(QString::fromUtf8("图像图层树"), this);
-        //addDockWidget(Qt::LeftDockWidgetArea, leftDock);
-
         // --- 右侧：要素属性面板 (将 m_propTable 设为成员变量) ---
         QDockWidget* rightDock = new QDockWidget(QString::fromUtf8("要素属性面板"), this);
         m_propTable = new QTableWidget(5, 2, rightDock); // 使用成员变量
@@ -237,7 +228,6 @@ private:
     }
 
     void setupCentralWidget() {
-        // 新计划中明确中央视口为二维图像显示区
         m_imageWidget = new ImageWidget(this);
         setCentralWidget(m_imageWidget);
     }
