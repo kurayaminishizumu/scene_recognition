@@ -28,9 +28,6 @@ add_executable(${PROJECT_NAME} WIN32
     main.cpp 
     inputoutput.cpp
     imagewidget.cpp
-    # 建议后续在此处添加新的数据结构文件，例如：
-    # data_structure/ImageData.h
-    # data_structure/VectorData.h
 )
 
 # ==========================================
@@ -48,6 +45,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     # 核心库
     ${OpenCV_LIBS} 
     Qt6::Widgets
-    Qt6::Network   # 添加网络库用于调用 Python 接口
+    Qt6::Network
 
 )

@@ -114,11 +114,7 @@ private:
                         }
                     }
 
-                    // VLM 阶段不需要 Mask，传空图
-                    QImage emptyMask; 
-
-                    // 传递所有的框给前端绘图控件
-                    m_imageWidget->setDetectionResult(m_currentRects, emptyMask);
+                    m_imageWidget->setDetectionResult(m_currentRects);
                     
                     // 更新识别置信度为百分比
                     double conf = response["confidence"].toDouble();
@@ -171,7 +167,7 @@ private:
                     maskImg.loadFromData(QByteArray::fromBase64(response["mask_base64"].toString().toLatin1()), "PNG");
 
                     // 显示结果：只更新当前被点中目标的 Mask，保持绿框不变
-                    m_imageWidget->setDetectionResult(m_currentRects, maskImg);
+                    m_imageWidget->addMask(maskImg);
                     
                     // 更新属性面板
                     m_propTable->item(0, 1)->setText(QString(QString::fromUtf8("已识别: Obj %1")).arg(index + 1));

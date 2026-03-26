@@ -8,7 +8,7 @@
 
 ImageWidget::ImageWidget(QWidget* parent)
     : QWidget(parent)
-    , m_hasResult(false) // 初始化标志位
+    , m_hasResult(false)
     , m_scaleFactor(1.0)
     , m_offset(0.0, 0.0)
     , m_isDragging(false)
@@ -17,36 +17,36 @@ ImageWidget::ImageWidget(QWidget* parent)
     setMouseTracking(true);
 }
 
-// --- 新增接口实现 ---
-
 QPixmap ImageWidget::currentPixmap() const
 {
     return m_pixmap;
 }
 
-void ImageWidget::setDetectionResult(const QList<QRect>& rects, const QImage& mask)
+void ImageWidget::setDetectionResult(const QList<QRect>& rects)
 {
-    m_detectionRects = rects; // 存储多个框
-    m_maskImage = mask;
+    m_detectionRects = rects;
     m_hasResult = true;
+    // 初始化全透明图像，用于累积 Mask
+    m_accumulatedMask = QImage(m_cvImage.cols, m_cvImage.rows, QImage::Format_ARGB32);
+    m_accumulatedMask.fill(Qt::transparent);
+    
     update();
 }
 
 void ImageWidget::clearDetection()
 {
     m_hasResult = false;
-    m_detectionRects.clear(); // 清空列表
-    m_maskImage = QImage();
+    m_detectionRects.clear();
+    // 清空累积的 Mask 图层
+    if (!m_accumulatedMask.isNull()) {
+        m_accumulatedMask.fill(Qt::transparent);
+    }
     update();
 }
-
-// --- 原有逻辑修改与增强 ---
 
 void ImageWidget::setImage(const cv::Mat& mat)
 {
     if (mat.empty()) return;
-
-    // 加载新图前，先清理上一次的 AI 识别结果
     clearDetection();
 
     m_cvImage = mat.clone(); 
@@ -86,7 +86,18 @@ void ImageWidget::resetView()
 
     update(); 
 }
-
+void ImageWidget::addMask(const QImage& newMask)
+{
+    if (m_accumulatedMask.isNull() || newMask.isNull()) return;
+    QPainter maskPainter(&m_accumulatedMask);
+    // 设置叠加模式：SourceOver 表示将新像素盖在旧像素上（保留透明度）
+    maskPainter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    maskPainter.drawImage(0, 0, newMask);
+    
+    maskPainter.end();
+    
+    update(); 
+}
 void ImageWidget::paintEvent(QPaintEvent* event)
 {
     QWidget::paintEvent(event);
@@ -96,25 +107,20 @@ void ImageWidget::paintEvent(QPaintEvent* event)
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // --- 开始变换坐标系 ---
-    painter.save(); // 保存初始状态
+    painter.save(); 
     painter.translate(m_offset);
     painter.scale(m_scaleFactor, m_scaleFactor);
-
     // 1. 绘制底层街景图
     painter.drawPixmap(0, 0, m_pixmap);
-
     // 2. 绘制 AI 识别结果
     if (m_hasResult) {
-        // A. 绘制 Mask (半透明)
-        if (!m_maskImage.isNull()) {
+        // A. 绘制累积的 Mask 图层 (半透明)
+        if (!m_accumulatedMask.isNull()) {
             painter.save();
-            painter.setOpacity(0.5); // 设置 50% 透明度
-            // 注意：由于我们在变换后的坐标系，这里的 (0,0,w,h) 对应的是图像像素位置
-            painter.drawImage(0, 0, m_maskImage); 
+            painter.setOpacity(0.5);
+            painter.drawImage(0, 0, m_accumulatedMask); 
             painter.restore();
         }
-
         // B. 绘制 BBox 矩形框
         if (!m_detectionRects.isEmpty()) {
             QPen pen(Qt::green, 3);
@@ -136,17 +142,14 @@ void ImageWidget::paintEvent(QPaintEvent* event)
                 painter.setFont(QFont("Arial", 12, QFont::Bold));
                 painter.drawText(labelRect, Qt::AlignCenter, QString("Obj %1").arg(i + 1));
                 
-                // 恢复无刷画笔，准备画下一个框
                 painter.setBrush(Qt::NoBrush);
                 painter.setPen(pen);
             }
         }
     }
     
-    painter.restore(); // 恢复初始状态
+    painter.restore(); 
 }
-
-// --- 以下交互逻辑保持不变 ---
 
 void ImageWidget::resizeEvent(QResizeEvent* event)
 {
@@ -155,14 +158,11 @@ void ImageWidget::resizeEvent(QResizeEvent* event)
 
 void ImageWidget::mousePressEvent(QMouseEvent* event)
 {
-    // 只有在左键点击且当前有识别结果时才进行判定
     if (event->button() == Qt::LeftButton && m_hasResult) {
         // 1. 将鼠标点击的屏幕坐标 转换为 图像像素坐标
         // 转换公式：图像坐标 = (屏幕坐标 - 偏移量) / 缩放比例
         QPointF imgPos = (event->pos() - m_offset) / m_scaleFactor;
-
         // 2. 遍历所有绿框，检查点击点是否在框内
-        // 建议倒序遍历，这样如果框有重叠，会优先选中最上层（最后画）的框
         for (int i = m_detectionRects.size() - 1; i >= 0; --i) {
             if (m_detectionRects[i].contains(imgPos.toPoint())) {
                 // 3. 触发信号，并直接返回（不再执行拖拽逻辑）
@@ -172,7 +172,6 @@ void ImageWidget::mousePressEvent(QMouseEvent* event)
         }
     }
 
-    // 如果没点中框，则执行原有的拖拽逻辑
     if (event->button() == Qt::LeftButton) {
         m_isDragging = true;
         m_lastMousePos = event->pos();
