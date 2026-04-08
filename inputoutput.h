@@ -3,10 +3,12 @@
 
 #include <QString>
 #include <QWidget>
+#include <QList>
+#include <QPolygonF>
 
 namespace IOHelper {
     QString importImage(QWidget* parent);
-    QString exportGeoJSON(QWidget* parent);
+    bool exportGeoJSON(QWidget* parent, const QList<QPolygonF>& polygons);
 
 }
 

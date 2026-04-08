@@ -194,6 +194,7 @@ private:
         mainToolBar->addAction(actLoadVL);
         mainToolBar->addAction(actRunSAM);
         mainToolBar->addAction(actVectorize);
+        mainToolBar->addAction(actExportGIS);
     }
 
     void setupDockWidgets() {
@@ -301,17 +302,25 @@ private:
             statusBar()->showMessage(QString::fromUtf8("正在进行 OpenCV 多边形矢量化..."));
             
             // 执行矢量化算法 (纯粹的算法运算，不输出到界面)
-            QList<QPolygonF> polygons = Vectorization::vectorizeMask(mask, 2.0);
+            m_currentPolygons = Vectorization::vectorizeMask(mask, 2.0);
             
             int totalVertices = 0;
-            for (const auto& poly : polygons) {
+            for (const auto& poly : m_currentPolygons) {
                 totalVertices += poly.size();
             }
             
             // 更新属性面板
             m_propTable->item(2, 1)->setText(QString::number(totalVertices));
             
-            statusBar()->showMessage(QString::fromUtf8("矢量化完成！生成多边形数: ") + QString::number(polygons.size()) + QString::fromUtf8("，总顶点数: ") + QString::number(totalVertices));
+            statusBar()->showMessage(QString::fromUtf8("矢量化完成！生成多边形数: ") + QString::number(m_currentPolygons.size()) + QString::fromUtf8("，总顶点数: ") + QString::number(totalVertices));
+            
+            // 运算完成后，弹出弹窗要求用户选择路径保存 GeoJSON
+            IOHelper::exportGeoJSON(this, m_currentPolygons);
+        });
+
+        // 导出 GeoJSON 动作 (保留独立触发的能力)
+        connect(actExportGIS, &QAction::triggered, this, [this]() {
+            IOHelper::exportGeoJSON(this, m_currentPolygons);
         });
     }
 
@@ -323,6 +332,7 @@ private:
     // 用于存储 VLM 返回的坐标列表，供 SAM 备用
     QJsonArray m_currentBBoxArray; 
     QList<QRect> m_currentRects;   
+    QList<QPolygonF> m_currentPolygons;
 
     QAction* actImportImg;
     QAction* actImportPCL;
