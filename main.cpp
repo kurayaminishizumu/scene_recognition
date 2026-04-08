@@ -25,6 +25,7 @@
 #include <QFileDialog>
 #include "inputoutput.h" 
 #include "imagewidget.h"
+#include "vectorization.h"
 
 // ==========================================================
 // 2. 主窗口类设计
@@ -287,6 +288,30 @@ private:
         connect(actRunSAM, &QAction::triggered, this, [this]() {
              QMessageBox::information(this, QString::fromUtf8("操作提示"), 
                                       QString::fromUtf8("请直接在图像中点击您想分割的绿色目标框！"));
+        });
+
+        // 矢量化动作
+        connect(actVectorize, &QAction::triggered, this, [this]() {
+            QImage mask = m_imageWidget->getAccumulatedMask();
+            if (mask.isNull()) {
+                QMessageBox::warning(this, QString::fromUtf8("提示"), QString::fromUtf8("没有可用的掩膜数据，请先执行 SAM 分割！"));
+                return;
+            }
+            
+            statusBar()->showMessage(QString::fromUtf8("正在进行 OpenCV 多边形矢量化..."));
+            
+            // 执行矢量化算法 (纯粹的算法运算，不输出到界面)
+            QList<QPolygonF> polygons = Vectorization::vectorizeMask(mask, 2.0);
+            
+            int totalVertices = 0;
+            for (const auto& poly : polygons) {
+                totalVertices += poly.size();
+            }
+            
+            // 更新属性面板
+            m_propTable->item(2, 1)->setText(QString::number(totalVertices));
+            
+            statusBar()->showMessage(QString::fromUtf8("矢量化完成！生成多边形数: ") + QString::number(polygons.size()) + QString::fromUtf8("，总顶点数: ") + QString::number(totalVertices));
         });
     }
 

@@ -32,6 +32,10 @@ public:
     void clearDetection();
 
     void resetView();
+    
+    // 获取累积的掩膜数据
+    QImage getAccumulatedMask() const;
+
     signals:
     // 当某个绿框被点击时发出信号，传递该框在列表中的索引和矩形区域
         void boxClicked(int index, QRect rect);

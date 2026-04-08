@@ -86,6 +86,12 @@ void ImageWidget::resetView()
 
     update(); 
 }
+
+QImage ImageWidget::getAccumulatedMask() const
+{
+    return m_accumulatedMask;
+}
+
 void ImageWidget::addMask(const QImage& newMask)
 {
     if (m_accumulatedMask.isNull() || newMask.isNull()) return;

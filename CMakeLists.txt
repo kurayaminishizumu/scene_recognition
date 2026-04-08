@@ -28,6 +28,7 @@ add_executable(${PROJECT_NAME} WIN32
     main.cpp 
     inputoutput.cpp
     imagewidget.cpp
+    vectorization.cpp
 )
 
 # ==========================================
